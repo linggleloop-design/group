@@ -130,16 +130,21 @@
           <option value="basic">Basic（约 90 MB）</option>
           <option value="recommended">Recommended（约 200 MB）</option>
         </select>
+        <select id="backend" aria-label="Compile backend">
+          <option value="browser">浏览器本地</option>
+          <option value="server">本机 TeX Live</option>
+        </select>
         <button id="compileBtn" class="primary" type="button">编译</button>
         <button id="downloadBtn" type="button" disabled>下载 PDF</button>
       </div>
     </header>
 
     <p class="notice">
-      无需注册或登录，文档只在你自己的浏览器里编译，不会上传到任何服务器。
+      无需注册或登录，文档只在你自己的浏览器里编译，不会上传到任何外部服务器。
       第一次编译需要下载一次 LaTeX 引擎（约 90 MB），下载完成后会缓存，以后打开会快很多。
       如果编译时提示缺少宏包，可以把引擎切换为 Recommended 再重新编译。
       上传图片等附件后，在 LaTeX 里用 <code>\includegraphics{图片文件名.png}</code> 引用即可。
+      在本机测试时，可以切换到“本机 TeX Live”编译，支持完整的中文 ctex 文档。
     </p>
 
     <main class="workspace" aria-label="LaTeX editor workspace">
@@ -197,6 +202,9 @@
         },
       };
       const STORAGE_KEY = "group-latex-draft-v1";
+      const isLocalHost = ["localhost", "127.0.0.1", "::1"].includes(
+        location.hostname,
+      );
 
       const SAMPLE = `\\documentclass{article}
       \\usepackage{amsmath}
@@ -236,6 +244,15 @@
 
       function setProgress(text) {
         $("progress").textContent = text || "";
+      }
+
+      function bytesToBase64(bytes) {
+        let binary = "";
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+        }
+        return btoa(binary);
       }
 
       function loadDraft() {
@@ -337,6 +354,55 @@
         setStatus(`已添加 ${fileList.length} 个附件`, "ok");
       }
 
+      function projectFileUrl(project, rel) {
+        const encodedRel = rel
+          .split("/")
+          .map((part) => encodeURIComponent(part))
+          .join("/");
+        return `./test/${encodeURIComponent(project)}/${encodedRel}`;
+      }
+
+      async function loadProject(project) {
+        const manifestUrl = `./test/${encodeURIComponent(project)}/manifest.json`;
+        const manifestRes = await fetch(manifestUrl);
+        if (!manifestRes.ok) {
+          throw new Error(`找不到测试项目 ${project}`);
+        }
+        const manifest = await manifestRes.json();
+        const mainPath = manifest.main || "main.tex";
+
+        const mainRes = await fetch(projectFileUrl(project, mainPath));
+        if (!mainRes.ok) {
+          throw new Error(`无法读取 ${mainPath}`);
+        }
+
+        $("source").value = await mainRes.text();
+        $("mainFilename").value = mainPath.split("/").pop() || "main.tex";
+        extraFiles = [];
+
+        for (const rel of manifest.files || []) {
+          if (rel === mainPath) continue;
+          const res = await fetch(projectFileUrl(project, rel));
+          if (!res.ok) continue;
+          const isText = /\.(tex|bib|cls|sty|txt|log|json|csv|md)$/i.test(rel);
+          if (isText) {
+            const content = await res.text();
+            extraFiles.push({ path: rel, content, size: content.length });
+          } else {
+            const buffer = await res.arrayBuffer();
+            extraFiles.push({
+              path: rel,
+              content: new Uint8Array(buffer),
+              size: buffer.byteLength,
+            });
+          }
+        }
+
+        renderFileList();
+        setStatus(`已加载测试项目：${project}`, "ok");
+        scheduleSave();
+      }
+
       async function getRunner() {
         const bundle = $("bundle").value;
         if (runner && runnerBundle === bundle) return runner;
@@ -379,6 +445,74 @@
         return runner;
       }
 
+      async function compileViaServer() {
+        const compileBtn = $("compileBtn");
+        const downloadBtn = $("downloadBtn");
+        const mainFilename = $("mainFilename").value.trim() || "main.tex";
+        const files = [
+          { path: mainFilename, encoding: "utf8", data: $("source").value },
+          ...extraFiles.map((f) => ({
+            path: f.path,
+            encoding: typeof f.content === "string" ? "utf8" : "base64",
+            data:
+              typeof f.content === "string"
+                ? f.content
+                : bytesToBase64(f.content),
+          })),
+        ];
+
+        compileBtn.disabled = true;
+        downloadBtn.disabled = true;
+        $("log").textContent = "";
+        $("log").style.display = "none";
+        $("toggleLogBtn").textContent = "显示日志";
+        setStatus("正在用本机 TeX Live 编译…");
+        setProgress("");
+
+        try {
+          compileStart = performance.now();
+          const response = await fetch("/compile", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ main: mainFilename, files }),
+          });
+
+          if (!response.ok) {
+            const text = await response.text();
+            $("log").textContent =
+              text || `服务器返回错误（HTTP ${response.status}）`;
+            $("log").style.display = "block";
+            $("toggleLogBtn").textContent = "隐藏日志";
+            setStatus("编译失败，请查看右侧日志", "error");
+            setProgress("");
+            return;
+          }
+
+          const blob = await response.blob();
+          if (blob.type !== "application/pdf") {
+            throw new Error("服务器没有返回 PDF");
+          }
+
+          if (currentPdfUrl) URL.revokeObjectURL(currentPdfUrl);
+          currentPdfUrl = URL.createObjectURL(blob);
+          $("pdfPreview").src = currentPdfUrl;
+          downloadBtn.disabled = false;
+          const seconds = ((performance.now() - compileStart) / 1000).toFixed(1);
+          setStatus(`编译成功，用时 ${seconds} 秒`, "ok");
+          setProgress("");
+          saveDraft();
+        } catch (error) {
+          console.error(error);
+          $("log").textContent = String(error?.message || error);
+          $("log").style.display = "block";
+          $("toggleLogBtn").textContent = "隐藏日志";
+          setStatus("编译出错，请查看日志", "error");
+          setProgress("");
+        } finally {
+          compileBtn.disabled = false;
+        }
+      }
+
       async function compile() {
         const compileBtn = $("compileBtn");
         const downloadBtn = $("downloadBtn");
@@ -386,6 +520,11 @@
 
         if (!source) {
           setStatus("请先输入 LaTeX 代码", "error");
+          return;
+        }
+
+        if ($("backend").value === "server") {
+          await compileViaServer();
           return;
         }
 
@@ -496,6 +635,32 @@
       }
       renderFileList();
       scheduleSave();
+
+      const backendSelect = $("backend");
+      if (!isLocalHost) {
+        const serverOption = backendSelect.querySelector(
+          'option[value="server"]',
+        );
+        if (serverOption) serverOption.disabled = true;
+      } else {
+        backendSelect.value = "server";
+      }
+
+      const params = new URLSearchParams(location.search);
+      const project = params.get("project");
+      if (project) {
+        loadProject(project)
+          .then(() => {
+            if (params.get("autocompile") === "1" && isLocalHost) {
+              backendSelect.value = "server";
+              compile();
+            }
+          })
+          .catch((error) => {
+            console.error(error);
+            setStatus(`测试项目加载失败：${error.message}`, "error");
+          });
+      }
     </script>
   </body>
 </html>
