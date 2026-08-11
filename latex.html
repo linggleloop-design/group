@@ -146,7 +146,8 @@
       第一次编译需要下载一次 LaTeX 引擎（约 90 MB），下载完成后会缓存，以后打开会快很多。
       如果编译时提示缺少宏包，可以把引擎切换为 Recommended 再重新编译。
       上传图片等附件后，在 LaTeX 里用 <code>\includegraphics{图片文件名.png}</code> 引用即可。
-      在本机测试时，可以切换到“本机 TeX Live”编译，支持完整的中文 ctex 文档。
+      中文 ctex 文档也可以编译：缺少的中文宏包和字体会按需自动下载。
+      在本机测试时，也可以切换到“本机 TeX Live”编译。
     </p>
 
     <p id="fileModeNotice" class="notice file-notice" hidden>
@@ -199,6 +200,16 @@
 
       const $ = (id) => document.getElementById(id);
       const CORE_BASE = "https://texlyre.github.io/texlyre/core/busytex";
+      const REMOTE_TEXLIVE_ENDPOINT = "https://texlive2026.texlyre.org";
+      const LOCAL_BUSYTEX_JS = "./assets/busytex/busytex.js";
+      const CHINESE_FONTS = [
+        { path: "FandolSong-Regular.otf", url: "./assets/fonts/FandolSong-Regular.otf" },
+        { path: "FandolSong-Bold.otf", url: "./assets/fonts/FandolSong-Bold.otf" },
+        { path: "FandolHei-Regular.otf", url: "./assets/fonts/FandolHei-Regular.otf" },
+        { path: "FandolHei-Bold.otf", url: "./assets/fonts/FandolHei-Bold.otf" },
+        { path: "FandolKai-Regular.otf", url: "./assets/fonts/FandolKai-Regular.otf" },
+        { path: "FandolFang-Regular.otf", url: "./assets/fonts/FandolFang-Regular.otf" },
+      ];
       const BUNDLES = {
         basic: {
           label: "Basic",
@@ -262,6 +273,125 @@
         }
         return btoa(binary);
       }
+
+      BusyTexRunner.prototype.initializeDirect = async function () {
+        const pipelineScript = `${this.config.busytexBasePath}/busytex_pipeline.js`;
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = pipelineScript;
+          script.onload = resolve;
+          script.onerror = () =>
+            reject(new Error("Failed to load BusyTeX pipeline"));
+          document.head.appendChild(script);
+        });
+
+        const BusytexPipeline = window.BusytexPipeline;
+        const busytexJs = LOCAL_BUSYTEX_JS;
+        const busytexWasm = `${this.config.busytexBasePath}/busytex.wasm`;
+
+        this.busytexPipeline = new BusytexPipeline(
+          busytexJs,
+          busytexWasm,
+          this.config.preloadDataPackages,
+          this.config.catalogDataPackages,
+          [],
+          (msg) => {
+            this.logger.debug(msg);
+            this.reportDownloadProgress(msg);
+          },
+          (versions) => this.logger.debug("Applet versions:", versions),
+          true,
+          BusytexPipeline.ScriptLoaderDocument,
+        );
+        await this.busytexPipeline.on_initialized_promise;
+      };
+
+      BusyTexRunner.prototype.initializeWorker = async function () {
+        const remoteWorkerUrl = `${this.config.busytexBasePath}/busytex_worker.js`;
+        const remotePipelineUrl = `${this.config.busytexBasePath}/busytex_pipeline.js`;
+        const [pipelineCode, workerCode] = await Promise.all([
+          fetch(remotePipelineUrl).then((response) => {
+            if (!response.ok) throw new Error("Failed to load BusyTeX pipeline");
+            return response.text();
+          }),
+          fetch(remoteWorkerUrl).then((response) => {
+            if (!response.ok) throw new Error("Failed to load BusyTeX worker");
+            return response.text();
+          }),
+        ]);
+        const combinedCode =
+          pipelineCode +
+          "\n" +
+          workerCode.replace(
+            /importScripts\(['"]busytex_pipeline\.js['"]\);\s*/,
+            "",
+          );
+        const blob = new Blob([combinedCode], { type: "text/javascript" });
+        const workerUrl = URL.createObjectURL(blob);
+
+        return new Promise((resolve, reject) => {
+          let worker;
+          try {
+            worker = new Worker(workerUrl);
+          } catch (error) {
+            URL.revokeObjectURL(workerUrl);
+            reject(error);
+            return;
+          }
+          URL.revokeObjectURL(workerUrl);
+          this.worker = worker;
+
+          let settled = false;
+          let timeout;
+          const settle = (callback) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            callback();
+          };
+          const resetTimeout = () => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+              settle(() =>
+                reject(new Error("Timeout waiting for BusyTeX worker to initialize")),
+              );
+            }, 120000);
+          };
+          resetTimeout();
+
+          worker.onmessage = ({ data }) => {
+            if (settled) return;
+            if (data.initialized) {
+              settle(() => {
+                this.logger.debug("BusyTeX worker initialized:", data.initialized);
+                resolve();
+              });
+            } else if (data.exception) {
+              settle(() => reject(new Error(data.exception)));
+            } else if (data.print) {
+              if (this.reportDownloadProgress(data.print)) resetTimeout();
+            }
+          };
+          worker.onerror = (error) => {
+            error.preventDefault();
+            settle(() =>
+              reject(new Error("BusyTeX worker failed to initialize")),
+            );
+          };
+
+          const { jsFile, wasmFile } = this.getEngineAssetNames();
+          const busytexJs = LOCAL_BUSYTEX_JS;
+          const busytexWasm = `${this.config.busytexBasePath}/${wasmFile}`;
+          worker.postMessage({
+            busytex_js: busytexJs,
+            busytex_wasm: busytexWasm,
+            preload_data_packages_js: this.config.preloadDataPackages,
+            data_packages_js: this.config.catalogDataPackages,
+            texmf_local: [],
+            preload: true,
+          });
+        });
+      };
 
       function loadDraft() {
         try {
@@ -521,6 +651,39 @@
         }
       }
 
+      function isChineseDocument(source) {
+        return /\\documentclass(?:\[[^\]]*\])?\{ctex|\\usepackage(?:\[[^\]]*\])?\{[^}]*ctex|\\usepackage(?:\[[^\]]*\])?\{[^}]*xeCJK/i.test(
+          source,
+        );
+      }
+
+      function prepareChineseSource(source) {
+        if (!isChineseDocument(source) || source.includes("\\setCJKmainfont")) {
+          return source;
+        }
+        const setup =
+          "\n\\setCJKmainfont[Path=./, BoldFont=FandolSong-Bold.otf, ItalicFont=FandolKai-Regular.otf]{FandolSong-Regular.otf}\n" +
+          "\\setCJKsansfont[Path=./, BoldFont=FandolHei-Bold.otf]{FandolHei-Regular.otf}\n" +
+          "\\setCJKmonofont[Path=./]{FandolFang-Regular.otf}\n";
+        return source.replace(/\\begin\{document\}/, `${setup}\\begin{document}`);
+      }
+
+      async function addChineseFonts(files) {
+        const existing = new Set(files.map((f) => f.path));
+        for (const font of CHINESE_FONTS) {
+          if (existing.has(font.path)) continue;
+          const response = await fetch(font.url);
+          if (!response.ok) continue;
+          const buffer = await response.arrayBuffer();
+          files.push({
+            path: font.path,
+            content: new Uint8Array(buffer),
+            size: buffer.byteLength,
+          });
+        }
+        return files;
+      }
+
       async function compile() {
         const compileBtn = $("compileBtn");
         const downloadBtn = $("downloadBtn");
@@ -555,12 +718,18 @@
                 : new PdfLatex(r);
 
           const mainFilename = $("mainFilename").value.trim() || "main.tex";
+          const browserSource = prepareChineseSource($("source").value);
+          const browserFiles = extraFiles.slice();
+          if (isChineseDocument($("source").value)) {
+            await addChineseFonts(browserFiles);
+          }
           compileStart = performance.now();
 
           const result = await tool.compile({
-            input: $("source").value,
+            input: browserSource,
             mainTexPath: mainFilename,
-            additionalFiles: extraFiles,
+            additionalFiles: browserFiles,
+            remoteEndpoint: REMOTE_TEXLIVE_ENDPOINT,
             bibtex: true,
             makeindex: true,
             rerun: true,
@@ -658,12 +827,20 @@
       }
 
       const params = new URLSearchParams(location.search);
+      const requestedBackend = params.get("backend");
+      if (requestedBackend) {
+        const option = backendSelect.querySelector(
+          `option[value="${requestedBackend}"]`,
+        );
+        if (option && !option.disabled) {
+          backendSelect.value = requestedBackend;
+        }
+      }
       const project = params.get("project");
       if (project) {
         loadProject(project)
           .then(() => {
-            if (params.get("autocompile") === "1" && isLocalHost) {
-              backendSelect.value = "server";
+            if (params.get("autocompile") === "1") {
               compile();
             }
           })
