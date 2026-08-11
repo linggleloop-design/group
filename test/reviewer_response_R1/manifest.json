@@ -1,0 +1,17 @@
+{
+  "main": "reviewer_response_R1.tex",
+  "files": [
+    "reviewer_response_R1.tex",
+    "reviewer_response_R1_figs/fig1_gas_hhg.png",
+    "reviewer_response_R1_figs/fig2_gas_oam.png",
+    "reviewer_response_R1_figs/fig3_attosecond.png",
+    "reviewer_response_R1_figs/fig4_l0_two_conventions.png",
+    "reviewer_response_R1_figs/fig5_radial_vs_azimuthal.png",
+    "reviewer_response_R1_figs/fig7_3d_validation.png",
+    "reviewer_response_R1_figs/fig7_channels_log.png",
+    "reviewer_response_R1_figs/fig7_channels_user.png",
+    "reviewer_response_R1_figs/fig8_uniform_vs_gradient.png",
+    "reviewer_response_R1_figs/fig9_144_overview.png",
+    "reviewer_response_R1_figs/fig10_hbn_oam.png"
+  ]
+}
