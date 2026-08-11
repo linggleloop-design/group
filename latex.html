@@ -4,7 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>在线 LaTeX 编辑器 - 课题组网站</title>
-    <meta name="description" content="在浏览器中直接编写并编译 LaTeX，支持多文件、BibTeX 与 PDF 预览。" />
+    <meta
+      name="description"
+      content="无需登录的在线 LaTeX 编辑器：浏览器本地编译，支持多文件、BibTeX 与 PDF 预览。"
+    />
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       html, body { height: 100%; }
@@ -13,47 +16,482 @@
         background: #f5f5f5; color: #222;
         display: flex; flex-direction: column; min-height: 100%;
       }
-      .latex-topbar {
+
+      /* top bar */
+      .topbar {
         display: flex; align-items: center; justify-content: space-between;
-        gap: 1rem; padding: 0 1.2rem; height: 52px; flex: 0 0 auto;
-        background: #1a1a2e; color: #fff;
+        gap: 1rem; padding: 0 1.2rem; height: 54px; flex: 0 0 auto;
+        background: #1a1a2e; color: #fff; flex-wrap: wrap;
       }
-      .latex-topbar a { color: #ccc; text-decoration: none; font-size: .9rem; white-space: nowrap; }
-      .latex-topbar a:hover { color: #fff; }
-      .latex-topbar strong { font-size: .95rem; }
-      .latex-frame-wrap { flex: 1 1 auto; min-height: 0; position: relative; }
-      .latex-frame-wrap iframe {
-        position: absolute; inset: 0; width: 100%; height: 100%;
-        border: 0; background: #fff;
+      .topbar-left { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+      .topbar-left a { color: #ccc; text-decoration: none; font-size: .9rem; white-space: nowrap; }
+      .topbar-left a:hover { color: #fff; }
+      .topbar-left strong { font-size: .95rem; white-space: nowrap; }
+      .topbar-controls { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+      .topbar-controls select, .topbar-controls button {
+        height: 34px; padding: 0 .8rem; border: 1px solid #3a3a5e; border-radius: 6px;
+        background: #26264a; color: #fff; font-size: .85rem; cursor: pointer;
       }
-      .latex-notice { padding: .5rem 1.2rem; background: #fff8e6; color: #6b5317; font-size: .8rem; flex: 0 0 auto; }
-      .latex-notice a { color: #1a1a2e; }
-      @media (max-width: 720px) {
-        .latex-topbar { padding: 0 .8rem; }
-        .latex-topbar strong { font-size: .85rem; }
+      .topbar-controls select:hover, .topbar-controls button:hover { background: #32325e; }
+      .topbar-controls button.primary { background: #0d7377; border-color: #0d7377; }
+      .topbar-controls button.primary:hover { background: #0b868a; }
+      .topbar-controls button:disabled { opacity: .55; cursor: wait; }
+
+      /* notice */
+      .notice {
+        padding: .5rem 1.2rem; background: #eafaf6; color: #0b5d50;
+        font-size: .82rem; flex: 0 0 auto; border-bottom: 1px solid #d6eee8;
+      }
+
+      /* workspace */
+      .workspace { flex: 1 1 auto; min-height: 0; display: flex; }
+      .pane {
+        flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column;
+        background: #fff;
+      }
+      .pane + .pane { border-left: 1px solid #ddd; }
+      .pane-header {
+        display: flex; align-items: center; gap: .6rem;
+        padding: .5rem .8rem; background: #f0f0f4; border-bottom: 1px solid #ddd;
+        font-size: .85rem; flex: 0 0 auto;
+      }
+      .pane-header input[type="text"] {
+        height: 30px; padding: 0 .5rem; border: 1px solid #ccc; border-radius: 5px;
+        font-size: .82rem; width: 130px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .pane-header button, .pane-header label.btn {
+        height: 30px; padding: 0 .7rem; border: 1px solid #ccc; border-radius: 5px;
+        background: #fff; color: #333; font-size: .8rem; cursor: pointer;
+        display: inline-flex; align-items: center; gap: .3rem;
+      }
+      .pane-header button:hover, .pane-header label.btn:hover { background: #f7f7f7; }
+
+      #source {
+        flex: 1 1 auto; min-height: 0; width: 100%; resize: none; border: 0;
+        padding: 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 13px; line-height: 1.55; color: #1f2328; outline: none;
+        white-space: pre; overflow: auto; tab-size: 2;
+      }
+
+      .file-list {
+        flex: 0 1 auto; max-height: 140px; overflow: auto; border-top: 1px solid #eee;
+        padding: .4rem .8rem; font-size: .8rem; background: #fafafa;
+      }
+      .file-list:empty { display: none; }
+      .file-item {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: .6rem; padding: .2rem 0; border-bottom: 1px dashed #eee;
+      }
+      .file-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .file-item button {
+        border: 0; background: transparent; color: #b23b3b; cursor: pointer;
+        font-size: .78rem; padding: .1rem .3rem;
+      }
+
+      .preview-wrap { flex: 1 1 auto; min-height: 0; position: relative; background: #fff; }
+      #pdfPreview { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+      #log {
+        position: absolute; inset: 0; padding: .8rem; overflow: auto; background: #111;
+        color: #d6f5d6; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px; line-height: 1.5; white-space: pre-wrap; display: none;
+      }
+
+      /* status */
+      .statusbar {
+        display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+        padding: .45rem 1.2rem; background: #1a1a2e; color: #cfe; font-size: .8rem;
+        flex: 0 0 auto;
+      }
+      .statusbar .error { color: #ff9b9b; }
+      .statusbar .ok { color: #8ef0c0; }
+      #progress { color: #ffd479; }
+
+      @media (max-width: 820px) {
+        .workspace { flex-direction: column; }
+        .pane + .pane { border-left: 0; border-top: 1px solid #ddd; }
+        .pane { flex: 1 1 50%; }
+        .topbar { padding: .5rem .8rem; }
       }
     </style>
   </head>
   <body>
-    <header class="latex-topbar" aria-label="LaTeX editor navigation">
-      <a href="index.html">← 返回主页</a>
-      <strong>在线 LaTeX 编辑器</strong>
-      <a href="https://texlyre.github.io/texlyre/" target="_blank" rel="noreferrer">新窗口打开 ↗</a>
+    <header class="topbar" aria-label="LaTeX editor navigation">
+      <div class="topbar-left">
+        <a href="index.html">← 返回主页</a>
+        <strong>在线 LaTeX 编辑器</strong>
+      </div>
+      <div class="topbar-controls">
+        <select id="engine" aria-label="LaTeX engine">
+          <option value="xelatex">XeLaTeX</option>
+          <option value="pdflatex">pdfLaTeX</option>
+          <option value="lualatex">LuaLaTeX</option>
+        </select>
+        <select id="bundle" aria-label="TeX Live bundle">
+          <option value="basic">Basic（约 90 MB）</option>
+          <option value="recommended">Recommended（约 200 MB）</option>
+        </select>
+        <button id="compileBtn" class="primary" type="button">编译</button>
+        <button id="downloadBtn" type="button" disabled>下载 PDF</button>
+      </div>
     </header>
 
-    <p class="latex-notice">
-      编辑器基于开源的 TeXlyre（AGPL-3.0），编译完全在浏览器本地完成，不会把文档上传到服务器。
-      如果页面没有加载，请点击右上角“新窗口打开”。
+    <p class="notice">
+      无需注册或登录，文档只在你自己的浏览器里编译，不会上传到任何服务器。
+      第一次编译需要下载一次 LaTeX 引擎（约 90 MB），下载完成后会缓存，以后打开会快很多。
+      如果编译时提示缺少宏包，可以把引擎切换为 Recommended 再重新编译。
     </p>
 
-    <main class="latex-frame-wrap" aria-label="LaTeX editor">
-      <iframe
-        src="https://texlyre.github.io/texlyre/"
-        title="在线 LaTeX 编辑器"
-        allow="clipboard-read; clipboard-write; fullscreen; web-share; encrypted-media"
-        referrerpolicy="no-referrer"
-        loading="eager"
-      ></iframe>
+    <main class="workspace" aria-label="LaTeX editor workspace">
+      <section class="pane" aria-label="Editor">
+        <div class="pane-header">
+          <input id="mainFilename" type="text" value="main.tex" aria-label="Main file name" />
+          <label class="btn" for="uploadInput">上传附件</label>
+          <button id="clearFilesBtn" type="button">清空附件</button>
+        </div>
+        <textarea
+          id="source"
+          spellcheck="false"
+          aria-label="LaTeX source"
+        ></textarea>
+        <div id="fileList" class="file-list" aria-label="Uploaded files"></div>
+      </section>
+
+      <section class="pane" aria-label="Preview">
+        <div class="pane-header">
+          <strong>PDF 预览</strong>
+          <button id="toggleLogBtn" type="button">显示日志</button>
+        </div>
+        <div class="preview-wrap">
+          <iframe id="pdfPreview" title="PDF preview"></iframe>
+          <pre id="log" aria-label="Compile log"></pre>
+        </div>
+      </section>
     </main>
+
+    <footer class="statusbar">
+      <span id="status">就绪</span>
+      <span id="progress"></span>
+    </footer>
+
+    <input id="uploadInput" type="file" multiple hidden />
+
+    <script type="module">
+      import {
+        BusyTexRunner,
+        XeLatex,
+        PdfLatex,
+        LuaLatex,
+      } from "./assets/texlyre-busytex/index.js";
+
+      const $ = (id) => document.getElementById(id);
+      const CORE_BASE = "https://texlyre.github.io/texlyre/core/busytex";
+      const BUNDLES = {
+        basic: {
+          label: "Basic",
+          url: `${CORE_BASE}/texlive-basic.js`,
+        },
+        recommended: {
+          label: "Recommended",
+          url: `${CORE_BASE}/texlive-recommended.js`,
+        },
+      };
+      const STORAGE_KEY = "group-latex-draft-v1";
+
+      const SAMPLE = `\\documentclass{article}
+      \\usepackage{amsmath}
+      \\usepackage{graphicx}
+
+      \\title{My LaTeX Document}
+      \\author{Group Member}
+      \\date{\\today}
+
+      \\begin{document}
+      \\maketitle
+
+      \\section{Introduction}
+      This is a sample document. Replace this text with your own content.
+
+      \\begin{equation}
+        E = mc^2
+      \\end{equation}
+
+      \\section{Next Steps}
+      Try adding more sections, equations, figures, or bibliography files.
+
+      \\end{document}`;
+
+      let runner = null;
+      let runnerBundle = null;
+      let extraFiles = [];
+      let currentPdfUrl = null;
+      let compileStart = 0;
+      let saveTimer = null;
+
+      function setStatus(text, kind = "") {
+        const el = $("status");
+        el.textContent = text;
+        el.className = kind;
+      }
+
+      function setProgress(text) {
+        $("progress").textContent = text || "";
+      }
+
+      function loadDraft() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return false;
+          const data = JSON.parse(raw);
+          if (typeof data.source === "string") {
+            $("source").value = data.source;
+            $("mainFilename").value = data.mainFilename || "main.tex";
+            extraFiles = Array.isArray(data.extraFiles)
+              ? data.extraFiles.filter((f) => typeof f.content === "string")
+              : [];
+            renderFileList();
+            return true;
+          }
+        } catch (error) {
+          console.warn("Failed to restore draft:", error);
+        }
+        return false;
+      }
+
+      function saveDraft() {
+        const payload = {
+          source: $("source").value,
+          mainFilename: $("mainFilename").value || "main.tex",
+          extraFiles: extraFiles.filter((f) => typeof f.content === "string"),
+        };
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        } catch (error) {
+          console.warn("Failed to save draft:", error);
+        }
+      }
+
+      function scheduleSave() {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveDraft, 500);
+      }
+
+      function renderFileList() {
+        const list = $("fileList");
+        list.textContent = "";
+        extraFiles.forEach((file, index) => {
+          const item = document.createElement("div");
+          item.className = "file-item";
+          const size = file.size
+            ? `${(file.size / 1024).toFixed(1)} KB`
+            : "";
+          const nameSpan = document.createElement("span");
+          nameSpan.textContent = `${file.name} ${size}`;
+          item.appendChild(nameSpan);
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.textContent = "移除";
+          remove.addEventListener("click", () => {
+            extraFiles.splice(index, 1);
+            renderFileList();
+            scheduleSave();
+          });
+          item.appendChild(remove);
+          list.appendChild(item);
+        });
+        $("clearFilesBtn").disabled = extraFiles.length === 0;
+      }
+
+      function isTextFile(file) {
+        return (
+          file.type.startsWith("text/") ||
+          /\.(tex|bib|cls|sty|txt|log|json|csv|md|yml|yaml|xml|html)$/i.test(
+            file.name,
+          )
+        );
+      }
+
+      async function addUploadedFiles(fileList) {
+        for (const file of fileList) {
+          try {
+            if (isTextFile(file)) {
+              const content = await file.text();
+              extraFiles.push({ name: file.name, content, size: file.size });
+            } else {
+              const buffer = await file.arrayBuffer();
+              extraFiles.push({
+                name: file.name,
+                content: new Uint8Array(buffer),
+                size: file.size,
+              });
+            }
+          } catch (error) {
+            console.warn("Failed to read uploaded file:", file.name, error);
+          }
+        }
+        renderFileList();
+        scheduleSave();
+        setStatus(`已添加 ${fileList.length} 个附件`, "ok");
+      }
+
+      async function getRunner() {
+        const bundle = $("bundle").value;
+        if (runner && runnerBundle === bundle) return runner;
+
+        if (runner) {
+          runner.terminate();
+          runner = null;
+        }
+
+        setStatus("正在准备 LaTeX 编译引擎…");
+        setProgress("首次使用需要下载引擎，请耐心等待");
+
+        const config = {
+          busytexBasePath: CORE_BASE,
+          preloadDataPackages: [BUNDLES[bundle].url],
+          verbose: true,
+          onDownloadProgress: (p) => {
+            if (p.percent < 100) {
+              setProgress(`正在下载 ${BUNDLES[bundle].label} 引擎：${p.percent}%`);
+            } else {
+              setProgress("引擎下载完成");
+            }
+          },
+        };
+
+        runner = new BusyTexRunner(config);
+        runnerBundle = bundle;
+
+        try {
+          await runner.initialize(true);
+        } catch (error) {
+          console.warn("Worker init failed, falling back to direct init:", error);
+          runner.terminate();
+          runner = new BusyTexRunner(config);
+          await runner.initialize(false);
+        }
+
+        setStatus("编译引擎已就绪，可以开始编译", "ok");
+        setProgress("");
+        return runner;
+      }
+
+      async function compile() {
+        const compileBtn = $("compileBtn");
+        const downloadBtn = $("downloadBtn");
+        const source = $("source").value.trim();
+
+        if (!source) {
+          setStatus("请先输入 LaTeX 代码", "error");
+          return;
+        }
+
+        compileBtn.disabled = true;
+        downloadBtn.disabled = true;
+        setStatus("正在编译…");
+        setProgress("首次编译会稍慢");
+        $("log").textContent = "";
+        $("log").style.display = "none";
+        $("toggleLogBtn").textContent = "显示日志";
+
+        try {
+          const r = await getRunner();
+          const engine = $("engine").value;
+          const tool =
+            engine === "xelatex"
+              ? new XeLatex(r)
+              : engine === "lualatex"
+                ? new LuaLatex(r)
+                : new PdfLatex(r);
+
+          const mainFilename = $("mainFilename").value.trim() || "main.tex";
+          compileStart = performance.now();
+
+          const result = await tool.compile({
+            input: $("source").value,
+            mainTexPath: mainFilename,
+            additionalFiles: extraFiles,
+            bibtex: true,
+            makeindex: true,
+            rerun: true,
+            verbose: "info",
+          });
+
+          if (currentPdfUrl) URL.revokeObjectURL(currentPdfUrl);
+
+          if (result.success && result.pdf) {
+            const blob = new Blob([result.pdf], { type: "application/pdf" });
+            currentPdfUrl = URL.createObjectURL(blob);
+            $("pdfPreview").src = currentPdfUrl;
+            downloadBtn.disabled = false;
+            const seconds = ((performance.now() - compileStart) / 1000).toFixed(1);
+            setStatus(`编译成功，用时 ${seconds} 秒`, "ok");
+            setProgress("");
+            saveDraft();
+          } else {
+            $("log").textContent = result.log || "编译失败，没有返回日志。";
+            $("log").style.display = "block";
+            $("toggleLogBtn").textContent = "隐藏日志";
+            setStatus("编译失败，请查看右侧日志", "error");
+            setProgress("");
+          }
+        } catch (error) {
+          console.error(error);
+          $("log").textContent = String(error?.message || error);
+          $("log").style.display = "block";
+          $("toggleLogBtn").textContent = "隐藏日志";
+          setStatus("编译出错，请查看日志", "error");
+          setProgress("");
+        } finally {
+          compileBtn.disabled = false;
+        }
+      }
+
+      $("compileBtn").addEventListener("click", compile);
+      $("source").addEventListener("keydown", (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          event.preventDefault();
+          compile();
+        }
+      });
+      $("source").addEventListener("input", scheduleSave);
+      $("mainFilename").addEventListener("input", scheduleSave);
+      $("uploadInput").addEventListener("change", (event) => {
+        addUploadedFiles(Array.from(event.target.files || []));
+        event.target.value = "";
+      });
+      $("clearFilesBtn").addEventListener("click", () => {
+        extraFiles = [];
+        renderFileList();
+        scheduleSave();
+        setStatus("已清空附件", "ok");
+      });
+      $("toggleLogBtn").addEventListener("click", () => {
+        const log = $("log");
+        const hidden = log.style.display === "none";
+        log.style.display = hidden ? "block" : "none";
+        $("toggleLogBtn").textContent = hidden ? "隐藏日志" : "显示日志";
+      });
+      $("downloadBtn").addEventListener("click", () => {
+        if (!currentPdfUrl) return;
+        const a = document.createElement("a");
+        a.href = currentPdfUrl;
+        a.download = "output.pdf";
+        a.click();
+      });
+      $("bundle").addEventListener("change", () => {
+        if (runner) {
+          runner.terminate();
+          runner = null;
+          runnerBundle = null;
+          setStatus("引擎已重置，下次编译将使用新配置", "ok");
+        }
+      });
+
+      if (!loadDraft()) {
+        $("source").value = SAMPLE;
+      }
+      renderFileList();
+      scheduleSave();
+    </script>
   </body>
 </html>
