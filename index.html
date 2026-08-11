@@ -19,6 +19,7 @@
       .brand small { font-size: .75rem; opacity: .7; display: block; }
       .nav-links { display: flex; gap: 1.5rem; }
       .nav-links a { color: #ccc; text-decoration: none; font-size: .9rem; }
+      .nav-links a:hover { color: #fff; }
 
       /* ── banner placeholder ── */
       .banner-placeholder {
@@ -29,6 +30,12 @@
       .banner-placeholder h1 { font-size: 1.6rem; color: #555; }
       .banner-placeholder p  { font-size: 1rem; color: #888; }
       .banner-placeholder .author { font-size: 1.05rem; color: #000; margin-top: .5rem; }
+      .banner-actions { display: flex; gap: 1rem; justify-content: center; margin-top: 1.25rem; flex-wrap: wrap; }
+      .banner-actions a {
+        padding: .7rem 1.5rem; border-radius: 6px; text-decoration: none;
+        background: #1a1a2e; color: #fff; font-size: .95rem;
+      }
+      .banner-actions a:hover { opacity: .85; }
 
       /* ── home strip ── */
       .home-strip {
@@ -88,6 +95,7 @@
         <a href="#">Members</a>
         <a href="#">Publications</a>
         <a href="#">Resources</a>
+        <a href="latex.html">在线 LaTeX</a>
       </nav>
     </header>
 
@@ -99,6 +107,9 @@
         <p>This site is currently under construction.</p>
         <p>内容正在整理中，敬请期待。</p>
         <p class="author">作者：刘春宁</p>
+        <p class="banner-actions">
+          <a href="latex.html">在线 LaTeX 编辑器</a>
+        </p>
       </div>
 
       <!-- Metrics strip -->
