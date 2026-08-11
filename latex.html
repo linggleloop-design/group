@@ -139,6 +139,7 @@
       无需注册或登录，文档只在你自己的浏览器里编译，不会上传到任何服务器。
       第一次编译需要下载一次 LaTeX 引擎（约 90 MB），下载完成后会缓存，以后打开会快很多。
       如果编译时提示缺少宏包，可以把引擎切换为 Recommended 再重新编译。
+      上传图片等附件后，在 LaTeX 里用 <code>\includegraphics{图片文件名.png}</code> 引用即可。
     </p>
 
     <main class="workspace" aria-label="LaTeX editor workspace">
@@ -246,7 +247,9 @@
             $("source").value = data.source;
             $("mainFilename").value = data.mainFilename || "main.tex";
             extraFiles = Array.isArray(data.extraFiles)
-              ? data.extraFiles.filter((f) => typeof f.content === "string")
+              ? data.extraFiles
+                  .map((f) => ({ ...f, path: f.path || f.name }))
+                  .filter((f) => f.path && typeof f.content === "string")
               : [];
             renderFileList();
             return true;
@@ -281,11 +284,12 @@
         extraFiles.forEach((file, index) => {
           const item = document.createElement("div");
           item.className = "file-item";
+          const displayName = file.path || file.name || "";
           const size = file.size
             ? `${(file.size / 1024).toFixed(1)} KB`
             : "";
           const nameSpan = document.createElement("span");
-          nameSpan.textContent = `${file.name} ${size}`;
+          nameSpan.textContent = `${displayName} ${size}`;
           item.appendChild(nameSpan);
           const remove = document.createElement("button");
           remove.type = "button";
@@ -315,11 +319,11 @@
           try {
             if (isTextFile(file)) {
               const content = await file.text();
-              extraFiles.push({ name: file.name, content, size: file.size });
+              extraFiles.push({ path: file.name, content, size: file.size });
             } else {
               const buffer = await file.arrayBuffer();
               extraFiles.push({
-                name: file.name,
+                path: file.name,
                 content: new Uint8Array(buffer),
                 size: file.size,
               });
