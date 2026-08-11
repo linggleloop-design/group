@@ -42,6 +42,8 @@
         padding: .5rem 1.2rem; background: #eafaf6; color: #0b5d50;
         font-size: .82rem; flex: 0 0 auto; border-bottom: 1px solid #d6eee8;
       }
+      .file-notice { background: #fff0e0; color: #7a3e00; border-bottom-color: #f0d5b8; }
+      .file-notice a { color: #1a1a2e; font-weight: 600; }
 
       /* workspace */
       .workspace { flex: 1 1 auto; min-height: 0; display: flex; }
@@ -145,6 +147,12 @@
       如果编译时提示缺少宏包，可以把引擎切换为 Recommended 再重新编译。
       上传图片等附件后，在 LaTeX 里用 <code>\includegraphics{图片文件名.png}</code> 引用即可。
       在本机测试时，可以切换到“本机 TeX Live”编译，支持完整的中文 ctex 文档。
+    </p>
+
+    <p id="fileModeNotice" class="notice file-notice" hidden>
+      当前打开的是电脑本地文件，浏览器不允许在这种模式下加载编译功能。
+      请改用本机测试地址：
+      <a href="http://127.0.0.1:8123/latex.html">http://127.0.0.1:8123/latex.html</a>
     </p>
 
     <main class="workspace" aria-label="LaTeX editor workspace">
@@ -644,6 +652,9 @@
         if (serverOption) serverOption.disabled = true;
       } else {
         backendSelect.value = "server";
+      }
+      if (location.protocol === "file:") {
+        $("fileModeNotice").hidden = false;
       }
 
       const params = new URLSearchParams(location.search);
